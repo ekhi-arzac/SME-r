@@ -1,0 +1,9 @@
+^\.git$
+^\.gitignore$
+^\.Rbuildignore$
+^load\.R$
+^.*\.Rproj$
+^\.Rproj\.user$
+^sme_.*\.tar\.gz$
+^.*\.Rcheck$
+^inst/doc/.*\.log$

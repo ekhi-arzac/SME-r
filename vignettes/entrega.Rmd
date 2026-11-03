@@ -1,0 +1,416 @@
+---
+title: "SME: preparación y análisis de atributos en R"
+author: "Ekhi Arzac"
+output:
+  rmarkdown::pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    highlight: null
+    fig_caption: true
+    fig_crop: false
+fontsize: 10pt
+geometry: margin=2cm
+linkcolor: teal
+urlcolor: teal
+header-includes:
+  - \renewcommand{\contentsname}{Contenido}
+  - \renewcommand{\figurename}{Figura}
+vignette: >
+  %\VignetteIndexEntry{Preparacion y analisis de Iris con SME}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = TRUE,
+                     fig.width = 8, fig.height = 5, out.width = "100%",
+                     dev = "pdf", dpi = 120)
+options(width = 82, digits = 4)
+library(sme)
+```
+
+# Presentación y datos
+
+Esta viñeta corresponde exclusivamente a la entrega de R. Muestra el uso de todas
+las funciones públicas de `sme`, con sus entradas, salidas e interpretación. Los
+algoritmos de discretización, métricas, transformación, selección y asociación son
+implementaciones propias. Se usan operaciones básicas de R y ggplot2 para dibujar.
+
+Los ejemplos utilizan `datasets::iris` (https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/iris.html)
+
+
+```{r datos}
+iris_data <- datasets::iris
+head(iris_data)
+dim(iris_data)
+table(iris_data$Species)
+```
+
+## Subconjunto binario para el AUC
+
+El AUC implementado necesita exactamente dos clases. Para los ejemplos supervisados
+se conservan todas las observaciones de **versicolor y virginica**, sin cambiar sus
+valores ni sus etiquetas. `virginica` es la clase positiva. Las otras operaciones
+pueden utilizar Iris completo.
+
+```{r datos-binarios}
+iris_binary <- droplevels(subset(iris_data, Species != "setosa"))
+positive <- "virginica"
+table(iris_binary$Species)
+```
+
+Las numéricas se consideran continuas; factores, caracteres y lógicos se consideran
+categóricos. El argumento `categorical` permite declarar códigos numéricos como
+categorías cuando sea necesario. Los estadísticos omiten valores ausentes y las
+operaciones por pares usan pares completos. Las transformaciones conservan los NA.
+Iris no contiene ausentes y no se modifican los datos para introducirlos.
+
+# Discretización
+
+`discretizeEW(x, num.bins, exclude)` divide el rango observado en intervalos de igual
+anchura. Para $k$ intervalos, los cortes son
+$\min(x) + j(\max(x)-\min(x))/k$, con $j=1,\ldots,k-1$.
+Es útil para conservar distancias en la escala original; no garantiza igual número
+de observaciones por intervalo.
+
+`discretizeEF(x, num.bins, exclude)` ordena las observaciones y elige cortes próximos
+a las posiciones $nj/k$. Los valores iguales permanecen juntos: los empates pueden
+generar frecuencias desiguales y menos intervalos que los solicitados. Se eliminan
+cortes repetidos y el máximo observado.
+
+Ambas reciben un vector numérico o un data frame y un entero positivo de intervalos.
+Devuelven etiquetas `I1`, `I2`, etc., o un nuevo data frame. Los métodos S3 `.numeric`
+y `.data.frame` se seleccionan automáticamente. Los límites pertenecen al intervalo
+inferior; las constantes generan `I1` y los NA se conservan.
+
+## Un atributo
+
+```{r discretizacion-vector}
+x <- iris_data$Petal.Length
+width <- discretizeEW(x, 3)
+frequency <- discretizeEF(x, 3)
+head(data.frame(Petal.Length = x, anchura = width, frecuencia = frequency), 8)
+rbind(anchura = table(width), frecuencia = table(frequency))
+```
+
+Las tablas de frecuencias permiten apreciar la diferencia entre los algoritmos
+sobre las medidas reales. No se fuerza una separación entre observaciones empatadas.
+
+## Dataset completo
+
+Solo se transforman las columnas numéricas no excluidas. La especie se conserva
+como factor; se indica también en `exclude` para expresar su papel en el análisis.
+
+```{r discretizacion-dataset}
+iris_ew <- discretizeEW(iris_data, 3, exclude = "Species")
+iris_ef <- discretizeEF(iris_data, 3, exclude = "Species")
+head(iris_ew)
+head(iris_ef)
+```
+
+## Cortes explícitos y funciones auxiliares
+
+`discretize(x, cut.points, label.prefix)` permite elegir los cortes y devuelve un
+vector de etiquetas; ordena y deduplica los límites. Aquí se calculan a partir del
+rango observado del pétalo, sin introducir medidas nuevas.
+
+`findRange(value, cut.points)` busca por búsqueda binaria el índice de intervalo,
+desde 1. Si se usa directamente, requiere cortes ordenados sin NA.
+
+```{r cortes}
+limits <- min(x) + (max(x) - min(x)) * (1:2) / 3
+limits
+head(discretize(x, limits, label.prefix = "P"))
+findRange(x[1], limits)
+```
+
+`applyColumns(df, filter, fn)` aplica una transformación a las columnas seleccionadas
+por un predicado y devuelve el data frame transformado. Este ejemplo reutiliza la
+normalización propia sobre las medidas, conservando la especie.
+
+```{r aplicar-columnas}
+head(applyColumns(iris_data, is.numeric, normalize))
+```
+
+# Métricas de los atributos
+
+## Estadísticos univariantes
+
+`mean(x)` calcula la media aritmética; `variance(x)` utiliza la varianza **muestral**
+$\sum_i(x_i-\bar{x})^2/(n-1)$, y `stdDev(x)` es su raíz cuadrada. Reciben un vector
+numérico y devuelven un escalar. Con menos de dos observaciones, la varianza y
+la desviación son indefinidas (`NA`).
+
+La función propia `mean` conserva el nombre de la implementación del proyecto y
+oculta la genérica de R al cargar el paquete. Para solicitar expresamente la función
+original se puede usar `base::mean`.
+
+`entropy(x)` recibe categorías y calcula la entropía de Shannon en bits:
+$H(X)=-\sum_x p(x)\log_2 p(x)$. Es cero para una constante. También puede aplicarse
+a las etiquetas producidas explícitamente por la discretización.
+
+```{r estadisticos}
+c(media = mean(x), varianza = variance(x), desviacion = stdDev(x))
+entropy(iris_data$Species)
+entropy(iris_ef$Petal.Length)
+```
+
+## Reconocimiento del tipo en un dataset
+
+`attributeMetrics(df, class, positive, categorical)` devuelve una fila por atributo:
+nombre, tipo, número observado, varianza, entropía y AUC. En numéricas calcula
+varianza y, si se especifica clase binaria, AUC; en categóricas, entropía. Excluye la
+clase de la evaluación de atributos. Lo no aplicable o indefinido se representa con
+`NA`. Sin clase, las tres especies pueden analizarse como un atributo categórico.
+
+```{r metricas-dataset}
+attributeMetrics(iris_data)
+metrics <- attributeMetrics(iris_binary, class = "Species", positive = positive)
+metrics
+```
+
+El AUC considera la dirección original del atributo: una medida mayor predice la
+clase positiva. Un valor bajo puede corresponder a una relación inversa, que no se
+invierte automáticamente. Si tras omitir pares incompletos no quedan ambas clases,
+el AUC del atributo es `NA`.
+
+## Entropía cruzada e información mutua
+
+`crossEntropy(x, y)` compara dos distribuciones categóricas empíricas mediante
+$H(P,Q)=-\sum_x p(x)\log_2 q(x)$. Alinea por etiqueta, admite muestras de diferente
+longitud y devuelve `Inf` si falta en Q una categoría observada en P. Se conserva
+de la implementación inicial. Comparar una distribución consigo misma devuelve su
+entropía.
+
+`mutualInfo(x, y)` recibe dos vectores categóricos emparejados y calcula
+$\sum_{x,y}p(x,y)\log_2[p(x,y)/(p(x)p(y))]$ usando frecuencias conjuntas.
+No utiliza entropía cruzada. Su unidad es el bit y no está limitada a uno. Una
+variable consigo misma tiene información mutua igual a su entropía.
+
+```{r informacion}
+crossEntropy(iris_data$Species, iris_data$Species)
+mutualInfo(iris_data$Species, iris_data$Species)
+mutualInfo(iris_ef$Petal.Length, iris_data$Species)
+```
+
+# Normalización y estandarización
+
+`normalize(x, exclude)` aplica $(x-\min(x))/(\max(x)-\min(x))$ y lleva el rango a
+$[0,1]$. `standardize(x, exclude)` aplica $(x-\bar{x})/s$ con desviación muestral.
+Esta última centra y ajusta la escala sin imponer un rango $[0,1]$.
+
+Aceptan vector o data frame y devuelven un nuevo objeto, sin modificar Iris. En
+datasets solo se transforman las numéricas no excluidas. Las constantes generan
+ceros; al estandarizar también lo hace una columna con una sola observación. Se
+conservan NA y columnas no numéricas.
+
+```{r transformaciones}
+head(data.frame(original = x, normalizada = normalize(x),
+                estandarizada = standardize(x)))
+normalized <- normalize(iris_data, exclude = "Species")
+standardized <- standardize(iris_data, exclude = "Species")
+head(normalized)
+head(standardized)
+c(media = mean(standardized$Petal.Length),
+  desviacion = stdDev(standardized$Petal.Length))
+```
+
+# Filtrado por métricas
+
+`filterFeatures` recibe el dataset y umbrales mínimos inclusivos: se acepta un
+atributo si cumple todas sus condiciones aplicables. `min.variance` y `min.auc` se
+aplican a numéricas; `min.entropy`, a categóricas. Omitir un umbral no impone esa
+condición. Una métrica indefinida no supera un umbral solicitado.
+
+La salida conserva el orden de las columnas seleccionadas y siempre incluye la
+clase indicada. Filtrar por AUC exige clase binaria. Los umbrales 0.1, 0.8 y 1.5
+son **criterios ilustrativos**, no resultados asumidos ni parámetros aprendidos.
+
+```{r filtrado}
+selected <- filterFeatures(iris_binary, min.variance = 0.1, min.auc = 0.8,
+                           class = "Species", positive = positive)
+names(selected)
+head(selected)
+
+# Ejemplo de filtrado categórico sobre las medidas discretizadas de Iris.
+selected_discrete <- filterFeatures(iris_ef, min.entropy = 1.5)
+names(selected_discrete)
+head(selected_discrete)
+```
+
+# Correlación y asociación por pares
+
+`pearson(x, y)` recibe vectores numéricos emparejados y devuelve un coeficiente en
+$[-1,1]$. Calcula productos de desviaciones respecto a las medias. El signo indica
+la dirección de una relación lineal. Con constantes o menos de dos pares completos
+es indefinido.
+
+`associationMatrix(df, categorical, num.bins)` devuelve una lista con matrices
+simétricas `values` y `methods`. Dos numéricas usan Pearson; dos categóricas,
+información mutua. En pares mixtos se discretiza la numérica por igual frecuencia
+sobre los pares completos y se calcula MI (`mi_discretized`). Este resultado
+depende del número de intervalos, que queda indicado en la llamada.
+
+```{r asociaciones}
+pearson(iris_data$Petal.Length, iris_data$Petal.Width)
+associations <- associationMatrix(iris_data, num.bins = 3)
+round(associations$values, 3)
+associations$methods
+
+# Tras discretizar todas las medidas, todos los pares utilizan MI.
+discrete_associations <- associationMatrix(iris_ef)
+round(discrete_associations$values, 3)
+```
+
+# AUC y gráficos con ggplot2
+
+## Curva ROC
+
+`rocCurve(scores, class, positive)` devuelve la tabla de umbrales, tasa de falsos
+positivos y tasa de verdaderos positivos. Comienza en $(0,0)$ y termina en $(1,1)$;
+los scores empatados se incorporan en un mismo punto. `auc` integra trapecios entre
+los puntos: un empate entre observaciones de distinta clase aporta media victoria.
+
+Aquí los scores son las medidas originales del pétalo del subconjunto binario. No
+se entrena un modelo ni se inventan puntuaciones. `plotROC` dibuja con ggplot2 y
+devuelve invisiblemente `curve`, `auc` y `plot`, un objeto ggplot reutilizable.
+
+```{r roc-tabla}
+scores <- iris_binary$Petal.Length
+classes <- iris_binary$Species
+auc(scores, classes, positive = positive)
+roc <- rocCurve(scores, classes, positive = positive)
+head(roc)
+tail(roc)
+```
+
+```{r roc-grafico, fig.width=6, fig.height=5, fig.cap="ROC de la longitud del pétalo para distinguir virginica de versicolor."}
+roc_plot <- plotROC(scores, classes, positive = positive,
+                    main = "Iris: virginica frente a versicolor")
+```
+
+El área representa la capacidad de ordenar observaciones positivas por encima de
+negativas; la diagonal corresponde a un AUC de 0.5. La función respeta la dirección
+original de la medida.
+
+## Matrices de Pearson e información mutua
+
+`plotAssociation` recibe la lista de asociaciones y dibuja dos paneles. Pearson
+utiliza la escala $[-1,1]$; MI tiene su propia escala en bits. El gris indica una
+celda ausente o correspondiente al otro método. Cero en MI es un valor válido.
+En la diagonal categórica aparece la entropía, no necesariamente uno.
+
+```{r matriz-grafico, fig.width=9, fig.height=5.5, fig.cap="Asociaciones de Iris: escalas independientes para Pearson y MI."}
+association_plots <- plotAssociation(associations, main = "Iris")
+```
+
+La salida conserva `values` y `methods` y añade `plots$pearson` y `plots$mi`.
+Los gráficos pueden personalizarse o guardarse con `ggplot2::ggsave`. Este ejemplo
+guarda la curva ya calculada en un archivo temporal, sin alterar los datos.
+
+```{r guardar-grafico}
+plot_file <- tempfile(fileext = ".pdf")
+ggplot2::ggsave(plot_file, plot = roc_plot$plot, width = 6, height = 5)
+file.exists(plot_file)
+unlink(plot_file)
+```
+
+# Objeto S3 y lectura/escritura
+
+`smeDataset(data, class, positive, categorical)` reúne los datos y sus metadatos.
+Los genéricos anteriores seleccionan métodos `.sme_dataset`; las transformaciones
+protegen automáticamente la clase y las categorías declaradas y devuelven otro
+objeto. `attributeMetrics`, `filterFeatures` y `associationMatrix` reutilizan los
+metadatos, evitando repetirlos en cada llamada. El filtrado actualiza los nombres
+categóricos si se elimina alguna columna.
+
+```{r objeto}
+ds <- smeDataset(iris_binary, class = "Species", positive = positive)
+class(ds)
+head(as.data.frame(ds))
+attributeMetrics(ds)
+head(as.data.frame(normalize(ds)))
+head(as.data.frame(standardize(ds)))
+head(as.data.frame(discretizeEW(ds, 3)))
+head(as.data.frame(discretizeEF(ds, 3)))
+names(as.data.frame(filterFeatures(ds, min.auc = 0.8)))
+round(associationMatrix(ds, num.bins = 3)$values, 3)
+```
+
+`print(ds)` muestra las dimensiones, la clase y sus datos. Se ejecuta aquí sin
+volcar las cien filas al documento.
+
+```{r imprimir, results='hide'}
+print(ds)
+```
+
+`writeDataset(x, file)` guarda valores en CSV sin nombres de fila y devuelve
+invisiblemente la ruta. `readDataset(file, ...)` lee el CSV y construye el objeto.
+CSV no conserva metadatos ni todos los tipos; se especifican de nuevo al leer y
+`colClasses` permite controlar la inferencia. El archivo temporal contiene solo
+observaciones de Iris.
+
+```{r lectura-escritura}
+path <- tempfile(fileext = ".csv")
+writeDataset(ds, path)
+loaded <- readDataset(path, class = "Species", positive = positive)
+head(as.data.frame(loaded))
+attributeMetrics(loaded)
+unlink(path)
+```
+
+# Referencia y reproducción de la entrega
+
+Las funciones y métodos S3 mostrados están documentados también en la ayuda del
+paquete. Las funciones auxiliares internas de validación no forman parte de la
+interfaz pública.
+
+| Función o genérico | Entrada principal | Salida |
+|:--|:--|:--|
+| `discretizeEW`, `discretizeEF` | vector/dataset, intervalos | etiquetas o dataset |
+| `discretize` | vector y cortes | etiquetas |
+| `findRange` | valor y cortes ordenados | índice desde 1 |
+| `applyColumns` | datos, predicado y función | data frame |
+| `mean`, `variance`, `stdDev` | vector numérico | escalar |
+| `entropy`, `crossEntropy`, `mutualInfo` | categorías | bits |
+| `attributeMetrics` | datos, clase y tipos | tabla de métricas |
+| `normalize`, `standardize` | vector/dataset | datos transformados |
+| `filterFeatures` | datos y umbrales | datos seleccionados |
+| `pearson` | vectores numéricos | coeficiente |
+| `associationMatrix` | datos, tipos e intervalos | valores y métodos |
+| `auc`, `rocCurve` | scores y clase binaria | área o tabla |
+| `plotROC`, `plotAssociation` | scores/asociaciones | gráficos ggplot |
+| `smeDataset` | datos y metadatos | objeto S3 |
+| `print`, `as.data.frame` | objeto S3 | presentación o datos |
+| `readDataset`, `writeDataset` | objeto/ruta CSV | objeto o archivo |
+| `openGuide` | abrir o localizar | ruta del PDF |
+
+## Consultar la viñeta instalada
+
+Las llamadas siguientes se utilizan después de construir e instalar el paquete
+con su PDF. No se ejecutan durante la compilación del propio documento.
+
+```{r consultar-vineta, eval=FALSE}
+vignette("entrega", package = "sme")
+openGuide(browse = FALSE)  # Ruta del PDF instalado.
+openGuide(browse = TRUE)   # Abrir el PDF en el visor.
+```
+
+## Compilar desde el proyecto
+
+Desde `SME-r`, con el paquete instalado y una distribución LaTeX:
+
+```{r compilar, eval=FALSE}
+install.packages(c("ggplot2", "knitr", "rmarkdown"))
+rmarkdown::render("vignettes/entrega.Rmd", output_dir = "inst/doc")
+```
+
+El fuente es `vignettes/entrega.Rmd` y el resultado es `inst/doc/entrega.pdf`.
+`R CMD build SME-r` construye el paquete y su viñeta mediante knitr/rmarkdown.
+Para instalar desde el repositorio con reconstrucción de viñetas:
+
+```{r instalar-github, eval=FALSE}
+devtools::install_github("ekhi-arzac/SME-r", build_vignettes = TRUE)
+```

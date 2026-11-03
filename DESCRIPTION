@@ -1,0 +1,17 @@
+Package: sme
+Type: Package
+Title: Preparacion y Analisis de Atributos de Datasets
+Version: 0.1.0
+Author: Ekhi Arzac [aut]
+Maintainer: Ekhi Arzac <earzac001@ikasle.ehu.eus>
+Description: Implementaciones propias para discretizar, transformar y seleccionar
+    atributos, calcular metricas y asociaciones, y representar sus resultados.
+    Incluye un objeto S3 para gestionar datasets con metadatos y lectura y
+    escritura CSV. Los algoritmos utilizan operaciones basicas de R.
+License: GPL (>= 2)
+Encoding: UTF-8
+Imports: ggplot2 (>= 3.4.0), grid, rlang, utils
+Suggests: datasets, knitr, rmarkdown
+VignetteBuilder: knitr
+URL: https://github.com/ekhi-arzac/SME-r
+Config/roxygen2/version: 8.1.0
