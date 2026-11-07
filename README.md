@@ -72,3 +72,21 @@ CSV guarda valores, sin metadatos del objeto: se especifican de nuevo al leer.
 
 `plotROC()` y `plotAssociation()` dibujan con ggplot2 y devuelven los objetos gráficos
 para personalizarlos o guardarlos con `ggplot2::ggsave()`.
+
+`plotPCA()` añade tres vistas: observaciones en PC1–PC2 coloreadas por especie,
+varianza explicada individual y acumulada, y mapa de pesos de los atributos.
+Centra y estandariza con desviación muestral por defecto (`scale = FALSE` solo
+centra). Utiliza `base::svd()`; la especie solo colorea y se excluye del cálculo.
+Admite data frames y objetos `sme_dataset`, respetando sus metadatos.
+
+```r
+pca <- plotPCA(datasets::iris, group = "Species", main = "Iris: PCA estandarizado")
+pca$explained_variance
+ggplot2::ggsave("iris_pca.png", pca$plots$scores, width = 7, height = 5, dpi = 180)
+```
+
+Devuelve invisiblemente `scores`, `loadings` (vectores unitarios),
+`explained_variance` (fracciones), `center`, `scale`, `dropped` (constantes omitidas)
+y tres objetos en `plots`. Requiere dos filas y dos atributos numéricos variables.
+Rechaza ausentes e infinitos en predictores y ausentes en los grupos; excluye las
+demás columnas no numéricas. La viñeta incluye los tres paneles con Iris completo.

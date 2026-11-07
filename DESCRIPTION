@@ -10,7 +10,7 @@ Description: Implementaciones propias para discretizar, transformar y selecciona
     escritura CSV. Los algoritmos utilizan operaciones basicas de R.
 License: GPL (>= 2)
 Encoding: UTF-8
-Imports: ggplot2 (>= 3.4.0), grid, rlang, utils
+Imports: ggplot2 (>= 3.4.0), grid, rlang, stats, utils
 Suggests: datasets, knitr, rmarkdown
 VignetteBuilder: knitr
 URL: https://github.com/ekhi-arzac/SME-r

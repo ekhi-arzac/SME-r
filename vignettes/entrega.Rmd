@@ -26,7 +26,7 @@ vignette: >
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = TRUE,
                      fig.width = 8, fig.height = 5, out.width = "100%",
-                     dev = "pdf", dpi = 120)
+                     dev = "pdf", dev.args = list(useDingbats = FALSE), dpi = 120)
 options(width = 82, digits = 4)
 library(sme)
 ```
@@ -37,6 +37,7 @@ Esta viñeta corresponde exclusivamente a la entrega de R. Muestra el uso de tod
 las funciones públicas de `sme`, con sus entradas, salidas e interpretación. Los
 algoritmos de discretización, métricas, transformación, selección y asociación son
 implementaciones propias. Se usan operaciones básicas de R y ggplot2 para dibujar.
+La visualización PCA adicional utiliza la descomposición SVD de R base.
 
 Los ejemplos utilizan `datasets::iris` (https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/iris.html)
 
@@ -317,6 +318,41 @@ file.exists(plot_file)
 unlink(plot_file)
 ```
 
+\newpage
+
+## PCA: estructura multivariante de Iris
+
+`plotPCA(data, group, scale, main)` resume las medidas en componentes principales.
+Centra cada atributo y, por defecto, divide por su desviación muestral para que las
+cuatro medidas tengan el mismo peso inicial. Calcula la SVD de esa matriz; no usa
+la especie para ajustar la proyección. `group = "Species"` solo colorea los puntos
+y admite las tres especies, sin la restricción binaria del AUC.
+
+```{r pca-grafico, fig.width=11, fig.height=4.8, fig.cap="PCA estandarizado de Iris: observaciones, varianza explicada y pesos de los atributos."}
+pca <- plotPCA(iris_data, group = "Species", main = "Iris: PCA estandarizado")
+```
+
+```{r pca-resultados}
+round(100 * pca$explained_variance, 2)
+round(pca$loadings[, 1:2], 3)
+head(pca$scores[, 1:2])
+```
+
+Las dos primeras componentes conservan aproximadamente el 95.81% de la varianza
+estandarizada. Setosa aparece separada y versicolor y virginica se solapan en parte.
+Las barras muestran la varianza individual y la línea, la acumulada. El mapa de
+pesos muestra los coeficientes de los vectores unitarios: su signo expresa la
+dirección de cada medida en la componente; no representa causalidad ni precisión
+de clasificación. El signo global de una componente es arbitrario.
+
+La salida conserva las filas e incluye `scores`, `loadings`, `explained_variance`
+(fracciones), `center`, `scale`, `dropped` y los objetos reutilizables
+`plots$scores`, `plots$variance` y `plots$loadings`. Con `scale = FALSE` solo centra.
+Admite también `sme_dataset`, excluyendo su clase y sus categorías declaradas.
+Omite constantes y requiere dos filas y dos atributos numéricos variables.
+Rechaza ausentes e infinitos en predictores y ausentes en los grupos, para no
+eliminar observaciones silenciosamente. Las columnas no numéricas se excluyen.
+
 # Objeto S3 y lectura/escritura
 
 `smeDataset(data, class, positive, categorical)` reúne los datos y sus metadatos.
@@ -382,6 +418,7 @@ interfaz pública.
 | `associationMatrix` | datos, tipos e intervalos | valores y métodos |
 | `auc`, `rocCurve` | scores y clase binaria | área o tabla |
 | `plotROC`, `plotAssociation` | scores/asociaciones | gráficos ggplot |
+| `plotPCA` | datos, grupo y escala | proyección, varianza, pesos y gráficos |
 | `smeDataset` | datos y metadatos | objeto S3 |
 | `print`, `as.data.frame` | objeto S3 | presentación o datos |
 | `readDataset`, `writeDataset` | objeto/ruta CSV | objeto o archivo |
