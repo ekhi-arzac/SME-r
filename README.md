@@ -12,10 +12,10 @@ Instala la dependencia gráfica desde R:
 install.packages("ggplot2")
 ```
 
-Desde el directorio que contiene `SME-r`:
+La librería puede instalarse directamente desde este repositorio con:
 
-```bash
-R CMD INSTALL SME-r
+```r
+devtools::install_github("ekhi-arzac/SME-r", build_vignettes = TRUE)
 ```
 
 El PDF incluido se consulta después de instalar el paquete:
@@ -34,17 +34,6 @@ install.packages(c("knitr", "rmarkdown"))
 rmarkdown::render("vignettes/entrega.Rmd", output_dir = "inst/doc")
 ```
 
-La construcción completa también compila e incluye la viñeta:
-
-```bash
-R CMD build SME-r
-```
-
-Una vez publicados los archivos en el repositorio, puede instalarse con:
-
-```r
-devtools::install_github("ekhi-arzac/SME-r", build_vignettes = TRUE)
-```
 
 Ejemplo con observaciones originales de Iris y una clase binaria para AUC:
 
